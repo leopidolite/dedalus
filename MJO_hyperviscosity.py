@@ -27,7 +27,7 @@ PATH
 path = f'/Users/luitbald/CODE/movies/MJO_{datetime.now().strftime("%Y-%m-%d-%H-%M")}'
 
 """
-SIMULATION PARAMETERS
+Domain Parameters 
 """
 Lx = 1.0e7 
 Ly = 1.0e7
@@ -36,24 +36,48 @@ ymin, ymax = -Ly/2, Ly/2
 f0 = 0
 f_ = 4.0e-4
 beta = 2.0e-11 
-
 Nx, Ny = 128, 128 
-tau_r = 9e6  
-tau_e  = 800*25 
 
-nu_8 = (1*10**15)
-nu_ = (1*10**5)   
-gamma = 7.0  
-alpha = 20 
-forcing_wavenumber = 20.0 #wavenumber for stochastic forcing
-forcing_packet_width = 2.0 #half-width of wavenumber packet for forcing
-epsilon = 1e-7
-dealias = 3/2 
+""" 
+Simulation Parameters
+"""
+ADAPTIVE_COLORMAP = False  # Plot with adaptive colormap / not
 
-STOCHASTIC_FORCING_ON = 0 # 1.0 for stochastic forcing, 0 otherwise
-TIMESTEP_CAP = 0.8 
+STOCHASTIC_FORCING_ON = 1.0 # 1.0 for stochastic forcing, 0 otherwise
+TIMESTEP_CAP = 0.95
 RUN_TIME = 2 # days
 F_PLANE = False 
+NONLINEAR = 1.0 #0 to ommit nonlinear SWE terms, 1.0 otherwise
+
+if F_PLANE:
+    """
+    F Plane
+    """
+    tau_r = 9e4
+    tau_e  = 800*15
+    nu_8 = (1*10**21)
+    nu_ = (1*10**5)   
+    gamma = 2.0  
+    alpha = 20 
+    forcing_wavenumber = 20.0 #wavenumber for stochastic forcing
+    forcing_packet_width = 2.0 #half-width of wavenumber packet for forcing
+    epsilon = 1e-7
+    dealias = 3/2 
+else: 
+    """
+    β Plane
+    """ 
+    tau_r =   9e6
+    tau_e  = 0.2*days
+    nu_scale = 1.0 
+    nu_8 = (1*10**20) / nu_scale
+    nu_ = (1*10**4) / nu_scale
+    gamma = 2.5
+    alpha = 35
+    forcing_wavenumber = 5.0 #wavenumber for stochastic forcing
+    forcing_packet_width = 3.0 #half-width of wavenumber packet for forcing
+    epsilon = 1e-7
+    dealias = 3/2
 
 """
 Fixed simulation parameters
@@ -70,8 +94,8 @@ T_0 = 300
 Rv = 462 
 
 nu_u = nu_ 
-nu_h = 2*nu_
-nu_q = 2*nu_
+nu_h = nu_
+nu_q = nu_
 
 
 """
@@ -176,8 +200,9 @@ if not F_PLANE:
     grad_Lap3q = d3.grad(Lap3_q) + ey*lift(tau_Lap3q_1)
 
 q_sat = lambda h_: q_0 * np.exp(-1*alpha * h_ / H)
+# L  = lambda A: ((A@ex)**2 + (A@ey)**2)**0.5*1.0 
 C = lambda h_,q_: HeavisideTheta(q_-q_sat(h_))*(q_-q_sat(h_))/tau
-E = lambda A, u: HeavisideTheta(q_g - A) * (q_g - A) / tau_e ### No velocity dependence 
+E = lambda A, u: HeavisideTheta(q_g - A) * (q_g - A) / tau_e ## No velocity dependence 
 
 
 U_x = U @ ex
@@ -205,9 +230,9 @@ else:
     problem.add_equation("Lap3_h -div(grad_Lap2h) + lift(tau_Lap3h_2) = 0")
     problem.add_equation("Lap3_q -div(grad_Lap2q)+ lift(tau_Lap3q_2) = 0")
 
-    problem.add_equation("dt(U) + f*zcross(U) + g*grad(h)- nu_u*div(grad_u) + lift(tau_Uy_2) + nu_8*div(grad_Lap3U) = 0")
-    problem.add_equation("dt(h) + H*div(U) +h/tau_r - nu_h*div(grad_h) + lift(tau_h_2)+ nu_8*div(grad_Lap3h) = -gamma*C(h,q) + h_0/tau_r")
-    problem.add_equation("dt(q) - nu_q*div(grad_q) + lift(tau_q_2) + nu_8*div(grad_Lap3q) =E(q, U) - C(h,q) - div(q*U)")
+    problem.add_equation("dt(U) + f*zcross(U) + g*grad(h)- nu_u*div(grad_u) + lift(tau_Uy_2) + nu_8*div(grad_Lap3U) = 0 - U@grad(U)*NONLINEAR")
+    problem.add_equation("dt(h) + H*div(U) +h/tau_r - nu_h*div(grad_h) + lift(tau_h_2)+ nu_8*div(grad_Lap3h) = -gamma*C(h,q) + h_0/tau_r - U@grad(h)*NONLINEAR")
+    problem.add_equation("dt(q) - nu_q*div(grad_q) + lift(tau_q_2) + nu_8*div(grad_Lap3q) = E(q, U) - C(h,q) - div(q*U)")
 
     ### Free slip BCs
     problem.add_equation("U_y(y=-Ly/2) = 0")
@@ -248,12 +273,21 @@ Solve IVP
 solver = problem.build_solver('SBDF2')
 solver.stop_sim_time = days * RUN_TIME
 
-# IC
+# Initial Conditions
 x = dist.local_grid(x_basis, scale = 1)
 y = dist.local_grid(y_basis, scale= 1)
+
+"""
+Original VP 2020 initial bump 
+lump_scale = y*0.05
+h['g'] = 0.01* np.exp(-(np.sqrt((x+1.e6)**2 + (y+3.0e6)**2)/lump_scale)**2) *10
+q['g'] = q_0-1*1e-4 # background moisture near saturation   
+"""
+
 lump_scale = 5.0e5 
-h['g'] = 0.5 * np.exp(-(np.sqrt((x+1.e6)**2 + (y+1.0e6)**2)/lump_scale)**2)
+h['g'] = -0.5 * np.exp(-(np.sqrt((x+1.e6)**2 + (y+1.0e6)**2)/lump_scale)**2)
 q['g'] = q_0 - 1e-4
+
 
 init_timestep = 0.1
 ts = init_timestep
@@ -285,9 +319,9 @@ def Forcing(kt = 30):
     amp_temp= epsilon / var_ave       
     F_phy = np.sqrt(amp_temp) * F_phy_temp 
     gssian = np.exp(-(np.linspace(-Ly, Ly, int(Ny*aliasscale)))**2/(Ly/4)**2) # gaussian profile in y on beta plane to preserve BCs
-    if F_PLANE: gs = 0 # doubly periodic on f-plane
-    else: gs = 1.0 
-    return F_phy*np.sqrt(time_step)*(gssian*gs) 
+    if F_PLANE: gs = 1.0 # doubly periodic on f-plane
+    else: gs = gssian 
+    return F_phy/np.sqrt(time_step)*(gs) 
 
 def add_stochastic_forcing(x, out):
     out[:] = (x+ Forcing(forcing_wavenumber)*STOCHASTIC_FORCING_ON)
@@ -311,9 +345,9 @@ with open(path+'/params.txt', 'w') as file:
     file.write(f"tau = {tau} s\n")
     file.write(f"Nx, Ny = {Nx}, {Ny}\n")
     file.write(f"Max timestep: {tau*TIMESTEP_CAP}\n")
-    file.write(f"Kinematic viscosity: {nu_}")
-    file.write(f"h, q diffusivity: {nu_q}")
-    file.write(f"hyperviscosity coefficient: {nu_8}")
+    file.write(f"Kinematic viscosity: {nu_:.4e}\n")
+    file.write(f"h, q diffusivity: {nu_q:.4e}\n")
+    file.write(f"hyperviscosity coefficient: {nu_8:.4e}\n")
 
     if STOCHASTIC_FORCING_ON !=0:
         file.write(f"\n STOCHASTIC FORCING ON: \n")
@@ -333,17 +367,16 @@ t_list = []
 """
 RUN IVP 
 """
-
-CFL = flow_tools.CFL(solver, initial_dt=1e-3, cadence=10, safety=0.2, max_change=1.5, max_dt=tau*TIMESTEP_CAP)
+CFL = flow_tools.CFL(solver, initial_dt=init_timestep, cadence=10, safety=1.0, max_change=2.0, max_dt=tau*TIMESTEP_CAP)
 CFL.add_velocity(U)
 print("Starting simulation ")
 start_sim_time = time.time()
 
 while solver.proceed:
     timestep = CFL.compute_timestep()
+    tau = timestep/0.8
     ts = timestep
     q['g']= forcing_operator(q)['g']
-
     solver.step(timestep)
 
     if solver.iteration % 20 == 0: ### save time, KE, check nans
@@ -353,7 +386,7 @@ while solver.proceed:
         # C_list.append(np.copy(C(h,q)['g']))
         KE.append(np.sum((U['g'][0]**2 + U['g'][1]**2)*0.5))
  
-
+        print(f"\n {epsilon*np.sqrt(ts)}\n")
         if np.max(h['g']>1e2): break
         if np.any(np.isnan(h['g'])) or np.any(np.isnan(q['g'])):break
         print(f"Iter: {solver.iteration}, Time: {solver.sim_time/days:.4f} days, dt: {timestep:.4f}")
@@ -417,31 +450,35 @@ def series_to_ndarray(series):
         ndarray[i] = np.array(series[i])
     return ndarray
 
-def update_u_h_frame(frame,up,hp,ux,uy,h,res):
+def update_u_h_frame(frame, up, hp, ux, uy, h, res, adaptive):
     h_current = h[frame][::res,::res]
     hp.set_array(np.transpose(h_current).flatten())
-    hp.set_clim(np.min(h_current), np.max(h_current))
-    return up,hp
+    
+    if adaptive:
+        hp.set_clim(np.nanmin(h_current), np.nanmax(h_current))
+    return up, hp
 
-def update_scalar_frame(frame,val_plot,val,res):
+def update_scalar_frame(frame, val_plot, val, res, adaptive):
     val_current = val[frame][::res,::res]
     val_plot.set_array(np.transpose(val_current).flatten())
-    val_plot.set_clim(np.min(val_current), np.max(val_current))
+    
+    if adaptive:
+        val_plot.set_clim(np.nanmin(val_current), np.nanmax(val_current))
     return val_plot,
 
-def update_frame_combined(frame,up,hp,qp,Cp,ux,uy,h,q,C,res):
+def update_frame_combined(frame, up, hp, qp, Cp, ux, uy, h, q, C, res, adaptive):
     if frame % 10 == 0:
         n = len(ux)
         print("Rendering frame {} out of {}".format(frame,n))
         
-    up,hp = update_u_h_frame(frame,up,hp,ux,uy,h,res)
-    qp, = update_scalar_frame(frame,qp,q,res)
-    Cp, = update_scalar_frame(frame,Cp,C,res)
+    up, hp = update_u_h_frame(frame,up,hp,ux,uy,h,res, adaptive)
+    qp, = update_scalar_frame(frame,qp,q,res, adaptive)
+    Cp, = update_scalar_frame(frame, Cp,C, res,adaptive)
     
     current_time_days = frame * (solver.stop_sim_time / len(ux)) / (24*60*60)
     hp.figure.suptitle(f"Time = {current_time_days:.2f} days")
 
-    return up,hp,qp,Cp
+    return up, hp, qp, Cp
 
 def plot_combined(data):
    
@@ -458,11 +495,22 @@ def plot_combined(data):
     
     xgrid = np.linspace(xmin, xmax, nx_grid)[::res]
     ygrid = np.linspace(ymin, ymax, ny_grid)[::res]
-    X,Y = np.meshgrid(xgrid,ygrid)
+    X, Y = np.meshgrid(xgrid, ygrid)
+
+    if not ADAPTIVE_COLORMAP:
+        h_abs_max = max(abs(np.nanmin(h)), abs(np.nanmax(h)))
+        h_vmin, h_vmax = -0.05, 0.1
+        
+        q_vmin, q_vmax = np.nanmin(q)*0.8, np.nanmax(q)*0.8
+        C_vmin, C_vmax = np.nanmin(C)*0.8, np.nanmax(C)*0.8
+    else:
+        h_vmin, h_vmax = None, None
+        q_vmin, q_vmax = None, None
+        C_vmin, C_vmax = None, None
 
     fig, (ax1,ax2,ax3) = plt.subplots(1,3, figsize=(18, 5))
 
-    hp = ax1.pcolormesh(X,Y,np.zeros_like(X), cmap='RdBu', shading='auto')
+    hp = ax1.pcolormesh(X, Y, np.zeros_like(X), cmap='RdBu', shading='auto', vmin=h_vmin, vmax=h_vmax)
     up = None
     ax1.set_aspect("equal")
     ax1.set_xlabel("x")
@@ -470,22 +518,30 @@ def plot_combined(data):
     plt.colorbar(hp, ax=ax1, label="$h$")
     ax1.set_title("h")
 
-    qp = ax2.pcolormesh(X,Y,np.zeros_like(X), cmap='viridis', shading='auto')
+    qp = ax2.pcolormesh(X, Y, np.zeros_like(X), cmap='viridis', shading='auto', vmin=q_vmin, vmax=q_vmax)
     ax2.set_aspect("equal")
     ax2.set_xlabel("x")
     ax2.set_ylabel("y")
     plt.colorbar(qp, ax=ax2, label="$q$")
     ax2.set_title("q")
 
-    Cp = ax3.pcolormesh(X,Y,np.zeros_like(X), cmap='Blues', shading='auto')
+    Cp = ax3.pcolormesh(X, Y, np.zeros_like(X), cmap='Blues', shading='auto', vmin=C_vmin, vmax=C_vmax)
     ax3.set_aspect("equal")
     ax3.set_xlabel("x")
     ax3.set_ylabel("y")
     plt.colorbar(Cp, ax=ax3, label="C")
     ax3.set_title("Rainfall")
 
-    frameslist = np.arange(nframes,step=1)
-    anim = FuncAnimation(fig, update_frame_combined, fargs=(up,hp,qp,Cp,ux,uy,h,q,C,res), frames=frameslist, blit=False, repeat=False)
+    frameslist = np.arange(nframes, step=1)
+    
+    anim = FuncAnimation(
+        fig, 
+        update_frame_combined, 
+        fargs=(up, hp, qp, Cp, ux, uy, h, q, C, res, ADAPTIVE_COLORMAP), 
+        frames=frameslist, 
+        blit=False, 
+        repeat=False
+    )
     return anim
 
 data = read_files()
