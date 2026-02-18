@@ -139,7 +139,6 @@ cbar.set_label('$y^*$', size=20)
 
 ax.set_xticks([-3, -2, -1, 0, 1, 2, 3,])
 ax.set_yticks([ -1.5, 0, 1.5])
-# ax.set_yticks([-np.min(ylim), 0, np.max(ylim)])
 
 for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
              ax.get_xticklabels() + ax.get_yticklabels()):
@@ -151,14 +150,3 @@ plt.title(f'$\\alpha = ${alpha}', fontsize = 20)
 
 
 masterdir = os.getcwd()
-
-# plt.title('$U_0 = ' + str(U0) + '$')
-
-# plt.show()
-# fig.savefig(masterdir + '/fig_prelim/primitive/PE-real_kz_' + str(kz) + '_N' + str(N) + '_U_' + str(U0) + '_Ly_' + str(Ly) + '.pdf', format='pdf', dpi=fig.dpi)
-# # fig.savefig(masterdir + '/fig_prelim/PE-real_kz_' + str(kz) + '_N' + str(N) + '_U_' + str(U0) + '_Ly_' + str(Ly) + '.eps', dpi=fig.dpi)
-
-# np.savetxt(os.getcwd() + '/data/primitive/evals_numerical_kz_' + str(round(kz,3)) + '_U_' + str(U0) + '_Ly_' + str(Ly) + '.txt', omega.real)
-
-
-
