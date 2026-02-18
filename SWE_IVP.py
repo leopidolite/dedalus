@@ -191,9 +191,9 @@ solver = problem.build_solver('RK222')
 
 # Run IVP
 
-solver.stop_sim_time = 50
+solver.stop_sim_time = 30
 solver.stop_wall_time = np.inf
-solver.stop_iteration = 1000
+solver.stop_iteration = 2000
 
 # Set up CFL 
 vel = d3.VectorField(dist,coordsys =coords, bases=(x_basis, y_basis), name='vel')
@@ -265,8 +265,6 @@ def animate(i):
     return p
 
 ani = animation.FuncAnimation(fig, animate, frames=int(len(t_list)/10-1))
-Writer = animation.writers['ffmpeg']
-writer = Writer(fps=10, metadata=dict(artist='L'), bitrate=2000)
 print("Saving animation ...")
-ani.save(path + 'swe_ivp.mp4', writer=writer)
-print(f"\n \n Animation ('swe_ivp.mp4') saved to: {path}")
+ani.save(path + 'swe_ivp.gif', writer='pillow', fps=10)
+print(f"\n \n Animation ('swe_ivp.gif') saved to: {path}")
