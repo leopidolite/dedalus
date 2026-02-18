@@ -1,164 +1,272 @@
-# %% [markdown]
-# # Eigenmodes of the Shallow Water Equations
+"""
+Shallow Water Equations on a Double-Tanh Plane
 
-# %%
+February 2026
+Authors: Leopold Li, Brad Marston
+
+---------------------------------------------------------------------------
+    This script solves the IVP for the shallow water equations 
+    initialized with an eigenmode of a chosen frequency and horizontal 
+    wavenumber on a double-tanh plane: 
+
+        ∂ₜu + ∂ₓh - fv = 0
+        ∂ₜv + ∂ᵧh + fu = 0
+        ∂ₜh + ∂ₓu + ∂ᵧv = 0
+
+        f = tanh(⍺(y-y₀)) - tanh(⍺(y+y₀)) + 1
+---------------------------------------------------------------------------
+"""
+
+# Import Packages
+import sys
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+import os
+import pathlib
 import time
+import h5py
 import numpy as np
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import dedalus.public as d3
-from mpi4py import MPI
-CW = MPI.COMM_WORLD
+import dedalus.core as dec
+from dedalus.tools import post 
 import logging
 logger = logging.getLogger(__name__)
-import matplotlib
-%matplotlib inline
-import os
+plt.rcParams['text.usetex'] = True
+from dedalus.core.operators import GeneralFunction
+from dedalus.extras import flow_tools
+import shutil
+from mpi4py import MPI
 
-# %%
-### Simulation Parameters
 
-Nx = 64 #64
-Ny = 128 #128
-Ly = 20*np.pi
-Lx = 10
-y0 = Ly/4
+path = '[your path]'
 
-# Alpha
-alpha = 1.2
-f0 = 1
-kmax = np.pi # horizontal wave number extrema
-kx_global = np.linspace(-kmax,kmax,100)
+# Domain Parameters 
+Nx = 64  # x resolution
+Ny = 128  # y resolution
+Lx = 10   # meridional dimension
+Ly = 20*np.pi # zonal dimension
+y0 = Ly/4 # Offset for tanh equator 
+f0 = 1.0 # f₀ for beta-plane
 
-ky = 0.0
-N = 1
+"""
+Select parameters 
+"""
 
-def problem_builder(kx):
-    # Create bases and domain
-    ycoord = d3.Coordinate('y')
-    dist = d3.Distributor(ycoord, dtype=np.complex128)
-    ybasis = d3.ComplexFourier(ycoord, size=Ny, bounds=(-Ly/2, Ly/2))
-    y = dist.local_grids(ybasis) # grid
+target_omega = [-0.7] # Choose ⍵ for desired eigenmode to seed IVP
+alphas = [10] # alpha parameter for 'sharpness' double tanh equator
+horizontal_wavenumber = [2*(2*np.pi/Lx)] # Choose horizontal wavenumber for desired eigenmode to seed IVP
 
-    # Fields 
-    u = dist.Field(name='u', bases=ybasis)
-    v = dist.Field(name='v', bases=ybasis)
-    h = dist.Field(name='h', bases=ybasis)
-    omega = dist.Field(name='omega')
+h_g = None
+u_g = None
+v_g = None
+eig_sel = None
+kx  = None
+h_gs = []
+u_gs = []
+v_gs = []
+y = None
 
-    # Substitution 
-    dy = lambda A: d3.Differentiate(A, ycoord)
-    dx = lambda A: 1j*kx*A
-    dt = lambda A: -1j*omega*A
-    ky = 1
+### Solve EVP for given horizontal wavenumber, frequency, alpha, f0
+def EVP_solve(k_x, target_omega, alph, f0):
+    alpha = alph
+    y = d3.Coordinate('y')
+    dist = d3.Distributor(y, dtype=np.complex128)
+    Y = d3.ComplexFourier(y, size=Ny, bounds=(-Ly/2, Ly/2))
 
-    # define non-constant coefficients
-    f = dist.Field(bases=ybasis)
-    # f['g'] = f0*np.sin(2*np.pi*y[0]/Ly) # sin coriolis parameter  
-    f['g'] = f0*(np.tanh(alpha*(y[0]-y0)) -np.tanh(alpha*(y[0]+y0)) +1) # double tanh equator
+    _dy = lambda A: d3.Differentiate(A, y)
+    _dx = lambda A: (-1j*k_x)*A           
+    _dt = lambda A: ( 1j)*omega*A         
+
+    u = dist.Field(name='u', bases=Y)
+    v = dist.Field(name='v', bases=Y)
+    h = dist.Field(name='h', bases=Y)
+    omega = dist.Field(name='omega')        
+
+    yy = dist.local_grids(Y)[0]
+    f  = dist.Field(name='f', bases=Y)
+
+    f['g'] = f0*(np.tanh(alph*(yy-y0)) -np.tanh(alph*(yy+y0)) +1) # Double-tanh equator
 
     problem = d3.EVP([u, v, h], eigenvalue=omega, namespace=locals())
-
-    problem.add_equation("dt(u) + dx(h) - f * v = 0")
-    problem.add_equation("dt(v) + dy(h) + f * u = 0")
-    problem.add_equation("dt(h) + dx(u) + dy(v) = 0")
+    problem.add_equation("_dt(u) + _dx(h) - f*v = 0")
+    problem.add_equation("_dt(v) + _dy(h) + f*u = 0")
+    problem.add_equation("_dt(h) + _dx(u) + _dy(v) = 0")
 
     solver = problem.build_solver()
-    return solver, ybasis, dist
 
-# %%
-# Compute horizontal wavenumber k_x
-def make_array_omega(kx):
-    logger.info('Computing array of omega values at kx = %f' %kx)
-    # Change kx parameter
-    solver, ybasis, dist = problem_builder(kx)
     solver.solve_dense(solver.subproblems[0])
-    evals = np.sort(solver.eigenvalues)
-   
-    return evals
 
-# %%
-# compute spectrum
-omega = np.array([make_array_omega(kx) for kx in kx_global])
+    order = np.argsort(solver.eigenvalues.real) # Indices ordered by eigenvalues 
+    eigs_ordered  = solver.eigenvalues[order] # Eigenmodes in order
+    print("First few eigenvalues:\n", eigs_ordered[:5]) 
 
-# %%
-# Compute localization
-def make_loc(kx):
-    logger.info('Computing array of omega values at kx = %f' %kx)
-    # Change kx parameter
-    solver, ybasis, dist = problem_builder(kx)
-    # y = dist.local_grids(ybasis)[0] 
-    solver.solve_dense(solver.subproblems[0])
+    # Pick eigenvalues - finds eigenmode nearest to selected ⍵ 
+    omega_idx = np.argmin(np.abs(eigs_ordered.real - target_omega)) 
+    omega_idx_unsorted = np.argmin(np.abs(solver.eigenvalues.real - target_omega))
+    eig_sel = eigs_ordered[omega_idx]
+
+    print(f"Alpha = {alph} Omega:", eig_sel.real)
+
+    solver.set_state(omega_idx_unsorted)
+    y1d = dist.local_grids(Y, scales=1)[0]
+    h_g = h['g'].copy()
+    u_g = u['g'].copy()
+    v_g = v['g'].copy()
+
+# Plot selected eigenmode
+    plt.figure(figsize=(9, 6))
+    plt.plot(y1d, np.real(h_g), color = 'black', lw = 2)
+    plt.tick_params('both', size = 8, width = 1.5, direction = 'in')
+    plt.xlabel('$$y$$', fontsize = 25, color = 'dimgray')
+    plt.ylabel('$$h$$', fontsize = 25, color = 'dimgray')
+
+    ax = plt.gca()
+    for spine in ax.spines.values():
+        spine.set_linewidth(2)
+        spine.set_color('dimgray')
+
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
+    plt.title(f'$$\\alpha={alph}, k_x = {k_x:.3f},  \\omega = {eig_sel.real:.3f}, f_0 = {f0}$$',  fontsize = 25, color = 'dimgray')
+    ax.tick_params(axis='both', colors='dimgray') 
+
+    # Store grids for initializing IVP
+    h_gs.append(np.real(h_g))
+    u_gs.append(np.real(u_g))
+    v_gs.append(np.real(v_g))
+
+# Run EVP
+for i in range(len(alphas)): 
+    EVP_solve(horizontal_wavenumber[i], target_omega[i], alphas[i], f0)
+
+# Set desired kx: (Set to zero here)
+kx = horizontal_wavenumber[0]
+alpha = alphas[0] 
+
+
+"""
+IVP 
+"""
+# Pick initial conditions from collected eigenmodes
+eigenmode_h = h_gs[0]  # selects height field of indexed eigenmode
+eigenmode_u =  u_gs[0] # selects meriodional velocity field of indexed eigenmode
+eigenmode_v = v_gs[0] # selects zonal velocity field of indexed eigenmode
+
+# Dedalus Domain parameters 
+coords = d3.CartesianCoordinates('x','y')
+dist = d3.Distributor(coords, dtype=np.float64)
+
+x_basis = d3.RealFourier(coords['x'], Nx, bounds=[-Lx/2, Lx/2], dealias=1.0)
+y_basis = d3.RealFourier(coords['y'], Ny, bounds=[-Ly/2, Ly/2], dealias = 1.0)
+
+# Dedalus fields
+u = dist.Field(name='u', bases=[x_basis, y_basis])
+v = dist.Field(name='v', bases=[x_basis, y_basis])
+h = dist.Field(name='h', bases=[x_basis, y_basis])
+f = dist.Field(name='f', bases=[y_basis])
+
+dx = lambda A: d3.Differentiate(A, coords['x'])
+dy = lambda A: d3.Differentiate(A, coords['y'])
+
+x, y = dist.local_grids(x_basis, y_basis)
+f['g'] = np.tanh(alpha*(y - y0)) - np.tanh(alpha*(y + y0)) + 1.0 # Double-tanh plane
+# f['g'] =np.sin(2*np.pi*y/Ly) # sin coriolis parameter 
+
+# Initial conditions
+u['g'] = eigenmode_u.real*np.cos(kx*x)
+v['g'] = eigenmode_v.real*np.cos(kx*x)
+h['g'] = eigenmode_h.real*np.cos(kx*x)
+
+
+# IVP Equations 
+problem = d3.IVP([u, v, h], namespace=locals())
+problem.add_equation("dt(u) + dx(h) - f*v = 0")
+problem.add_equation("dt(v) + dy(h) + f*u  = 0")
+problem.add_equation("dt(h) + dx(u) + dy(v) = 0")
+
+solver = problem.build_solver('RK222') 
+
+# Run IVP
+
+solver.stop_sim_time = 50
+solver.stop_wall_time = np.inf
+solver.stop_iteration = 1000
+
+# Set up CFL 
+vel = d3.VectorField(dist,coordsys =coords, bases=(x_basis, y_basis), name='vel')
+init_dt = 0.001
+CFL = flow_tools.CFL(solver, initial_dt=init_dt, cadence=10, safety=0.3, max_change=1.5)
+CFL.add_velocity(vel)
+
+# Lists for accumulating grids 
+u_max= []
+u_list = []
+h_list = []
+t_list = []
+
+logger.info('Starting loop')
+start_time = time.time()
+dt = 0.005 # Initial dt
+
+while solver.proceed:
+    solver.step(dt)
+
+    vel['g'][0] = u['g'].real
+    vel['g'][1] = v['g'].real
+
+    dt = CFL.compute_timestep()
+    t_list.append(solver.sim_time)
+    u_list.append(np.copy(u['g']))
+    h_list.append(np.copy(h['g']))
     
-    order = np.argsort(solver.eigenvalues.real)
-    evals = np.sort(solver.eigenvalues)
-    solver.eigenvalues = evals
-    solver.eigenvectors = solver.eigenvectors[:, order]
     
+    if solver.iteration % 10 == 0:
+        print('Completed iteration {}, time {}, dt {}'.format(solver.iteration, t_list[-1], dt))
 
-    loc=np.zeros(order.size)
-    for iorder in np.arange(order.size):
-        solver.set_state(iorder,solver.subsystems[0])
-        umode = solver.state[0]['g'] # find the first field 
-        norm = umode * umode.conjugate()
-        normf = dist.Field(name='normf', bases=ybasis)
-        normf['g'] = norm.real
-        
-        normy = np.sin(2*np.pi*dist.local_grids(ybasis)[0]/Ly) * norm  # PBCs
-       
-        normyf = dist.Field(name='normyf', bases=ybasis)
-        normyf['g'] = normy.real
-        loc[iorder]= d3.Integrate(normyf).evaluate()['g'][0].real/d3.Integrate(normf).evaluate()['g'][0].real
-    
-    return loc
+end_time = time.time()
 
-loc_real = np.array([make_loc(kx) for kx in kx_global])
-kx_real =np.array([kx*np.ones(omega.shape[1]) for kx in kx_global])
 
-# %%
-# plot the spectrum 
-fig, ax = plt.subplots(figsize=(16, 8))
+logger.info('Run time: %f' %(end_time-start_time))
+logger.info('Iterations: %i' %solver.iteration)
 
-ylim = np.array([-1., 1.])*2
-plt.ylim(ylim)
+# Produce animation 
+import matplotlib.colors as mcolors
+from matplotlib import animation 
 
-# ky_local=2*np.pi/(Ly)*(np.array([0]))
+xm, ym = np.meshgrid(x,y)
 
-# Plot the analytical shallow water spectrum for f = 1
-kx=kx_global
-om = ( kx**2 + 1)**0.5
-im = ax.plot(kx_global,om,color='black')
-im = ax.plot(kx_global,-om,color='black')
-plt.xlabel('$k_x$')
-plt.ylabel('$\omega$') 
-    
-# plot the real part of the spectrum
-im = ax.scatter(kx_real, omega.real, c=loc_real, cmap=plt.cm.coolwarm, vmin=-1, vmax=1)
-cbar=fig.colorbar(im, ax=ax, ticks=[-1.0,0.0,1.0])
+fig, axis = plt.subplots(figsize=(10,5),num="Selected eigenmode")
+
+lim  = np.nanmax(np.abs(h_list))
+norm = mcolors.TwoSlopeNorm(vmin=-lim, vcenter=0.0, vmax=lim)
+p = axis.pcolormesh(xm, ym, np.array(h_list[0]).T,norm = norm, cmap='RdBu_r', shading='gouraud')
+axis.set_title(rf'$\alpha = {alpha},\ t = {t_list[0]:6.2f}$', fontsize = 20)
+axis.set_xlabel('x',fontsize=20)
+axis.set_ylabel('y',fontsize=20)
+cbar = fig.colorbar(p,ax=axis)
+cbar.set_label('h', fontsize = 20)
 cbar.ax.tick_params(labelsize=20)
-cbar.set_label('$y^*$', size=20)
+u_all = np.array(u_list)
+h_all = np.array(h_list)
 
-ax.set_xticks([-3, -2, -1, 0, 1, 2, 3,])
-ax.set_yticks([ -1.5, 0, 1.5])
-# ax.set_yticks([-np.min(ylim), 0, np.max(ylim)])
+def init():
+    p.set_array(np.ravel(np.array(h_list[0]).T))
+    return p
 
-for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-             ax.get_xticklabels() + ax.get_yticklabels()):
-    item.set_fontsize(20)
-    plt.tight_layout()
+def animate(i): 
+    if i % 10 == 0:
+        print(f"Rendering frame {i}...")
+    p.set_array(np.ravel(np.array(h_list[(i+1)*10]).T))
+    axis.set_title(fr'$\alpha = {alpha},\; t = {t_list[(i+1)*10]:6.2f}$')
 
-plt.xlim([np.min(kx_global), np.max(kx_global)])
-plt.title(f'$\\alpha = ${alpha}', fontsize = 20)
+    return p
 
-
-masterdir = os.getcwd()
-
-# plt.title('$U_0 = ' + str(U0) + '$')
-
-# plt.show()
-# fig.savefig(masterdir + '/fig_prelim/primitive/PE-real_kz_' + str(kz) + '_N' + str(N) + '_U_' + str(U0) + '_Ly_' + str(Ly) + '.pdf', format='pdf', dpi=fig.dpi)
-# # fig.savefig(masterdir + '/fig_prelim/PE-real_kz_' + str(kz) + '_N' + str(N) + '_U_' + str(U0) + '_Ly_' + str(Ly) + '.eps', dpi=fig.dpi)
-
-# np.savetxt(os.getcwd() + '/data/primitive/evals_numerical_kz_' + str(round(kz,3)) + '_U_' + str(U0) + '_Ly_' + str(Ly) + '.txt', omega.real)
-
-
-
+ani = animation.FuncAnimation(fig, animate, frames=int(len(t_list)/10-1))
+Writer = animation.writers['ffmpeg']
+writer = Writer(fps=10, metadata=dict(artist='L'), bitrate=2000)
+print("Saving animation ...")
+ani.save(path + 'swe_ivp.mp4', writer=writer)
+print(f"\n \n Animation ('swe_ivp.mp4') saved to: {path}")
