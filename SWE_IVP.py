@@ -58,9 +58,9 @@ Select parameters
     * Set simulation time / max iterations for IVP
 """
 
-target_omega = [-0.7] # Choose ⍵ for desired eigenmode to seed IVP
+target_omega = [1.0] # Choose ⍵ for desired eigenmode to seed IVP
 alphas = [10] # alpha parameter for 'sharpness' double tanh equator
-horizontal_wavenumber = [2*(2*np.pi/Lx)] # Choose horizontal wavenumber for desired eigenmode to seed IVP
+horizontal_wavenumber = [2.0 * (2*np.pi/Lx)] # Choose horizontal wavenumber for desired eigenmode to seed IVP
 sim_time = 30 
 max_iterations = 2000
 
@@ -137,7 +137,7 @@ def EVP_solve(k_x, target_omega, alph, f0):
     plt.yticks(fontsize=20)
     plt.title(f'$\\alpha={alph}, k_x = {k_x:.3f},  \\omega = {eig_sel.real:.3f}, f_0 = {f0}$',  fontsize = 25, color = 'dimgray')
     ax.tick_params(axis='both', colors='dimgray') 
-    # plt.save(path + 'selected_eigenmode.png', dpi = 200) # Uncomment to save plot
+    # plt.savefig(path + 'selected_eigenmode.png', dpi = 200) # Uncomment to save plot
 
     # Store grids for initializing IVP
     h_gs.append(np.real(h_g))
