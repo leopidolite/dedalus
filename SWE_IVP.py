@@ -34,14 +34,14 @@ import dedalus.core as dec
 from dedalus.tools import post 
 import logging
 logger = logging.getLogger(__name__)
-plt.rcParams['text.usetex'] = True
+plt.rcParams['text.usetex'] = False
 from dedalus.core.operators import GeneralFunction
 from dedalus.extras import flow_tools
 import shutil
 from mpi4py import MPI
 
 
-path = '[your path]'
+path = '[Your Path]'
 
 # Domain Parameters 
 Nx = 64  # x resolution
@@ -53,11 +53,16 @@ f0 = 1.0 # f₀ for beta-plane
 
 """
 Select parameters 
+    * Select target frequency + horizontal wavenumber of desired eigenmode for initialization
+    * Set ⍺ parameter for double-tanh plane
+    * Set simulation time / max iterations for IVP
 """
 
 target_omega = [-0.7] # Choose ⍵ for desired eigenmode to seed IVP
 alphas = [10] # alpha parameter for 'sharpness' double tanh equator
 horizontal_wavenumber = [2*(2*np.pi/Lx)] # Choose horizontal wavenumber for desired eigenmode to seed IVP
+sim_time = 30 
+max_iterations = 2000
 
 h_g = None
 u_g = None
@@ -120,8 +125,8 @@ def EVP_solve(k_x, target_omega, alph, f0):
     plt.figure(figsize=(9, 6))
     plt.plot(y1d, np.real(h_g), color = 'black', lw = 2)
     plt.tick_params('both', size = 8, width = 1.5, direction = 'in')
-    plt.xlabel('$$y$$', fontsize = 25, color = 'dimgray')
-    plt.ylabel('$$h$$', fontsize = 25, color = 'dimgray')
+    plt.xlabel('$y$', fontsize = 25, color = 'dimgray')
+    plt.ylabel('$h$', fontsize = 25, color = 'dimgray')
 
     ax = plt.gca()
     for spine in ax.spines.values():
@@ -130,8 +135,9 @@ def EVP_solve(k_x, target_omega, alph, f0):
 
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
-    plt.title(f'$$\\alpha={alph}, k_x = {k_x:.3f},  \\omega = {eig_sel.real:.3f}, f_0 = {f0}$$',  fontsize = 25, color = 'dimgray')
+    plt.title(f'$\\alpha={alph}, k_x = {k_x:.3f},  \\omega = {eig_sel.real:.3f}, f_0 = {f0}$',  fontsize = 25, color = 'dimgray')
     ax.tick_params(axis='both', colors='dimgray') 
+    # plt.save(path + 'selected_eigenmode.png', dpi = 200) # Uncomment to save plot
 
     # Store grids for initializing IVP
     h_gs.append(np.real(h_g))
@@ -191,9 +197,9 @@ solver = problem.build_solver('RK222')
 
 # Run IVP
 
-solver.stop_sim_time = 30
+solver.stop_sim_time = sim_time
 solver.stop_wall_time = np.inf
-solver.stop_iteration = 2000
+solver.stop_iteration = max_iterations
 
 # Set up CFL 
 vel = d3.VectorField(dist,coordsys =coords, bases=(x_basis, y_basis), name='vel')
