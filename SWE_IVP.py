@@ -44,8 +44,8 @@ from mpi4py import MPI
 path = '[Your Path]'
 
 # Domain Parameters 
-Nx = 64  # x resolution
-Ny = 128  # y resolution
+Nx = 128  # x resolution
+Ny = 256  # y resolution
 Lx = 10   # meridional dimension
 Ly = 20*np.pi # zonal dimension
 y0 = Ly/4 # Offset for tanh equator 
@@ -59,8 +59,8 @@ Select parameters
 """
 
 target_omega = [1.0] # Choose ⍵ for desired eigenmode to seed IVP
+horizontal_wavenumber = [1.0] # Choose horizontal wavenumber for desired eigenmode to seed IVP
 alphas = [10] # alpha parameter for 'sharpness' double tanh equator
-horizontal_wavenumber = [2.0 * (2*np.pi/Lx)] # Choose horizontal wavenumber for desired eigenmode to seed IVP
 sim_time = 30 
 max_iterations = 2000
 
@@ -182,9 +182,9 @@ f['g'] = np.tanh(alpha*(y - y0)) - np.tanh(alpha*(y + y0)) + 1.0 # Double-tanh p
 # f['g'] =np.sin(2*np.pi*y/Ly) # sin coriolis parameter 
 
 # Initial conditions
-u['g'] = eigenmode_u.real*np.cos(kx*x)
-v['g'] = eigenmode_v.real*np.cos(kx*x)
-h['g'] = eigenmode_h.real*np.cos(kx*x)
+u['g'] = eigenmode_u.real*np.cos(kx*2*np.pi/Lx*x)
+v['g'] = eigenmode_v.real*np.cos(kx*2*np.pi/Lx*x)
+h['g'] = eigenmode_h.real*np.cos(kx*2*np.pi/Lx*x)
 
 
 # IVP Equations 
