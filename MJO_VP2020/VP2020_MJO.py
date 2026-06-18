@@ -22,6 +22,7 @@ size = comm.Get_size()
 
 logger = logging.getLogger(__name__)
 
+
 """ 
 Vallis-Penn 2020 MJO Model in Dedalus
 
@@ -49,7 +50,7 @@ Vallis-Penn 2020 MJO Model in Dedalus
         * Resolution Nx, Ny (min. 256 typically required to generate disturbance)
         * Run time (days)
         * Interval between saved frames 
-        * Parameters γ, ⍺, tau_e, tau_r, lambda_
+        * Parameters γ, ⍺, tau, tau_r, lambda_
         * Options to add: stochastic forcing, nonlinear terms
         * Viscosity/diffusivity values 
         * Contact: leopold.li1312@gmail.com w/ inquiries  
@@ -60,14 +61,17 @@ Vallis-Penn 2020 MJO Model in Dedalus
 
     Other Details:
         - Heaviside 𝚯 implemented via erfs for stability
-        - Timestep is set to min[CFL timestep, 0.95*tau_e]
+        - Timestep is set to min[CFL timestep, 0.95*tau]
         - Stochastic forcing (when applied) is white in time, annulus k-space with random phase
+        - Optional Gaussian mask in y to remove distubances near boundaries
 """
 
 ##################################################################
 ##################################################################
-path = "[input path here]"
-NAME = f"{datetime.now().strftime('%Y-%m-%d-%H-%M')}" # Name file
+path = "[path here]"
+    # ex. "/[your path]/MJO_experiments/"
+NAME = "[sim name]" # Name file
+    # ex. "MJO_run"
 
 Lx = 1.0e7 
 Ly = 1.0e7
@@ -79,7 +83,7 @@ Nx, Ny = 256, 256
 days = 24*60*60
 
 
-RUN_TIME = 300 # in days
+RUN_TIME = 100 # in days
 save_every = 10 # Iterations between saved frames
 F_PLANE = False # if True --> F-plane used
 
@@ -91,7 +95,7 @@ if F_PLANE:
     NONLINEAR = 0.0 # Add nonlinear terms, default off
 
     tau_r = 9e4 # relaxation timescale
-    lambda_ = 0.42  # 1/tau_e --> evporation rate
+    lambda_ = 0.173/days  # per day --> 1/tau_e --> evporation rate
     nu_scale = Nx/128 # Scaling of viscosity, diffusivity by resolution
     nu_ = (1*10**4) / (nu_scale**2) 
     gamma = 5 # meters
@@ -114,9 +118,9 @@ else: # beta plane
 
     beta = 2.0e-11 
     gamma = 5 # meters
-    alpha =60.0 
+    alpha = 60.0 
     tau_r = 9e4 # relaxation timescale
-    lambda_ = 0.42  # 1/tau_e --> evporation rate
+    lambda_ = 0.173/days # 1/tau_e --> evporation rate
     
     nu_scale = Nx/128 # Scaling of viscosity, diffusivity by resolution
     nu_ = (1*10**4) / (nu_scale**2) # Viscosity/diffusivity 
@@ -161,7 +165,7 @@ if rank == 0:
         file.write(f"Nx, Ny = {Nx}, {Ny}\n")
         file.write(f"nu = {nu_}\n")
         file.write(f"tau = {tau}\n")
-        file.write(f"tau_e = {tau_e}\n")
+        file.write(f"lambda = {lambda_}\n /day")
         file.write(f"tau_r = {tau_r}\n\n")
         if STOCHASTIC_FORCING_ON ==1.0:
             file.write(f"\n\n STOCHASTIC FORCING ON \n")
@@ -225,13 +229,13 @@ if not F_PLANE:
     grad_q = d3.grad(q) + ey*lift(tau_q_1)
 
 mask = dist.Field(name='mask', bases=(y_basis)) 
-mask['g'] = d3.exp(- (y/mask_width)**2) 
+mask['g'] = d3.exp(- (y/mask_width)**2) # gaussian mask in y --> default off
 q_sat = lambda h_: q_0 * np.exp(-1*alpha * h_ / H)
 L  = lambda A: ((A@ex)**2 + (A@ey)**2)**0.5*1.0 
 
 delta = lambda h_, q_: q_ - q_sat(h_)
-C = lambda h_,q_: HeavisideSharp(q_ - q_sat(h_)) * (q_ - q_sat(h_)) / tau * mask
-E = lambda A, u: HeavisideSharp(q_g - A) * (q_g - A) * L(u)/ tau_e 
+C = lambda h_,q_: HeavisideSharp(q_ - q_sat(h_)) * (q_ - q_sat(h_)) / tau 
+E = lambda A, u: HeavisideSharp(q_g - A) * (q_g - A) * L(u) * lambda_ 
 
 U_x = U @ ex
 U_y = U @ ey

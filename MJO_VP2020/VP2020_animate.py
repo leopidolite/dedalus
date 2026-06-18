@@ -11,11 +11,14 @@ Plot output from VP2020_MJO.py
     • Returns movie + power spectrum saved in each folder
 """
 
-base_path = '/Users/luitbald/CODE/' 
+base_path = '[path here]' 
+    # ex. "/[your path]/MJO_experiments/"
 
-# list of folders --> to plot multiple runs, input list of folder names
-folders = [ 
-    'movies'
+# list of sim_runs --> to plot multiple runs, input folders containing /data folders for each sim
+
+sim_runs = [ 
+    '[simulation folder name]'
+    # ex. 'MJO_run'
 ]
 
 Nx = 256
@@ -199,8 +202,8 @@ def get_radial_spectrum(data):
     return k_axis[mask], tbin[mask]
 
 
-# Loop through input folders:  
-for folder in folders:
+# Loop through input sim_runs:  
+for folder in sim_runs:
     path = os.path.join(base_path, folder)
     data_path = os.path.join(path, 'data')
     
