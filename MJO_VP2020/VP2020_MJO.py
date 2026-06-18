@@ -23,11 +23,14 @@ size = comm.Get_size()
 logger = logging.getLogger(__name__)
 
 """ 
-Vallis-Penn 2020 MJO Model
-    • Paper: "Convective organization and eastward propagating equatorial disturbances in a simple excitable system"
-    • Runs simulation (mpi-parallel)
+Vallis-Penn 2020 MJO Model in Dedalus
 
-    Model: 
+    Authors: Leopold Li, Brad Marston
+
+    • Paper: "Convective organization and eastward propagating equatorial disturbances 
+                            in a simple excitable system", Vallis and Penn 2020
+
+    Equations: 
         ∂u/∂t + f × u + g∇u = ν_u ∇²u
 
         ∂h/∂t + H(∇·u) + γC - (h_0 - h)/τ_r = ν_h ∇²h
@@ -39,7 +42,7 @@ Vallis-Penn 2020 MJO Model
         q* = q_0 * exp(-αh / H)
         E = [𝚯(q_g - q)(q_g - q)] / τ_e
 
-    • To run: mpiexec -n [number of cores] python VP2020_MJO.py
+    • To run mpi-parallel simulation: mpiexec -n [number of cores] python VP2020_MJO.py
     • Modify following parameters: 
         --> F plane (double-periodic, Fourier bases)
         --> β plane (channel w/ rigid-wall BCs in y, Fourier x + Chebyshev y bases)
