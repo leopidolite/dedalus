@@ -4,7 +4,6 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 import h5py
 import os
 import re
- 
 
 """ 
 Plot output from VP2020_MJO.py 
@@ -12,11 +11,11 @@ Plot output from VP2020_MJO.py
     • Returns movie + power spectrum saved in each folder
 """
 
-base_path = '/Users/luitbald/CODE/movies/gamma_experiments/' 
+base_path = '/Users/luitbald/CODE/' 
 
 # list of folders --> to plot multiple runs, input list of folder names
 folders = [ 
-    'gamma5_long'
+    'movies'
 ]
 
 Nx = 256
