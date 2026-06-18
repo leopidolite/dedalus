@@ -62,7 +62,7 @@ Vallis-Penn 2020 MJO Model in Dedalus
     Other Details:
         - Heaviside 𝚯 implemented via erfs for stability
         - Timestep is set to min[CFL timestep, 0.95*tau]
-        - Stochastic forcing (when applied) is white in time, annulus k-space with random phase
+        - Stochastic forcing (when applied) is white in time and takes an annulus in k-space with random phases
         - Optional Gaussian mask in y to remove distubances near boundaries
 """
 
